@@ -7,11 +7,11 @@ class ModelImage extends StatelessWidget {
   final Function(int, CarouselPageChangedReason)? onPageChanged;
 
   const ModelImage({
-    super.key,
+    Key? key,
     required this.images,
     required this.activeIndex,
     required this.onPageChanged,
-  });
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +28,7 @@ class ModelImage extends StatelessWidget {
       items: images.map((e) {
         return ClipRRect(
           borderRadius: const BorderRadius.all(Radius.circular(10.0)),
-          child: Image.asset(
+          child: Image.network(
             e,
             fit: BoxFit.cover,
             width: 301.0,

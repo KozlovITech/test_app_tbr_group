@@ -1,51 +1,79 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import '../api/image_data.dart';
 import '../api/launch_data.dart';
 import '../models/model_image.dart';
-import '../models/model_image_repo.dart';
 import '../models/model_launch.dart';
+import '../models/model_repo_data.dart';
 
 class MainLaunchScreen extends StatefulWidget {
-  const MainLaunchScreen({super.key});
+  const MainLaunchScreen({Key? key});
 
   @override
-  State<MainLaunchScreen> createState() => _MainLaunchScreen();
+  State<MainLaunchScreen> createState() => _MainLaunchScreenState();
 }
 
-class _MainLaunchScreen extends State<MainLaunchScreen> {
+class _MainLaunchScreenState extends State<MainLaunchScreen> {
   late Future<List<LaunchData>> futureLaunchData;
+  late Future<List<List<String>>> futureRocketImages;
   int activeIndex = 0;
-  final ModelImageRepo modelImageRepo = ModelImageRepo();
 
   @override
   void initState() {
     super.initState();
-    futureLaunchData = fetchLaunchData(activeIndex);
+    futureRocketImages = fetchRocketImages();
+    futureLaunchData = fetchLaunchData(getRocketIdFromIndex(activeIndex));
+  }
+  Future<List<List<String>>> fetchRocketImages() async {
+    final List<List<String>> rocketImagesList = [];
+
+    for (final rocketId in rocketIds) {
+      final url = 'https://api.spacexdata.com/v3/rockets/$rocketId';
+      final response = await http.get(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        final List<dynamic> flickrImages = data['flickr_images'];
+
+        if (flickrImages.isNotEmpty) {
+          rocketImagesList.add(flickrImages.cast<String>());
+        } else {
+          rocketImagesList.add([]);
+        }
+      } else {
+        rocketImagesList.add([]);
+      }
+    }
+
+    return rocketImagesList;
   }
 
-  Future<List<LaunchData>> fetchLaunchData(int activeIndex) async {
-    final response =
-        await http.get(Uri.parse('https://api.spacexdata.com/v3/launches'));
+  Future<List<LaunchData>> fetchLaunchData(String rocketID) async {
+    final url = 'https://api.spacexdata.com/v3/launches?rocket_id=$rocketID';
+    final response = await http.get(Uri.parse(url));
+
     if (response.statusCode == 200) {
       final List<dynamic> data = jsonDecode(response.body);
       final List<LaunchData> launches = [];
 
       for (final launch in data) {
-        final rocketName = launch['rocket']['rocket_name'];
-
-        if ((activeIndex == 0 && rocketName == 'Falcon 1') ||
-            (activeIndex == 1 && rocketName == 'Falcon 9') ||
-            (activeIndex == 2 && rocketName == 'Falcon Heavy') ||
-            (activeIndex == 3 && rocketName == 'null')) {
-          final launchData = LaunchData.fromJson(launch);
-          launches.add(launchData);
-        }
+        final launchData = LaunchData.fromJson(launch);
+        launches.add(launchData);
       }
+
       return launches;
     } else {
       throw Exception('Failed to load launch data');
     }
+  }
+
+  void updateDataAndImages(int newIndex) {
+    setState(() {
+      activeIndex = newIndex;
+      futureRocketImages = fetchRocketImages();
+      futureLaunchData = fetchLaunchData(getRocketIdFromIndex(activeIndex));
+    });
   }
 
   @override
@@ -59,41 +87,57 @@ class _MainLaunchScreen extends State<MainLaunchScreen> {
             const Text(
               "SpaceX Launches",
               style: TextStyle(
-                  fontWeight: FontWeight.w500,
-                  fontSize: 24,
-                  color: Colors.white),
+                fontWeight: FontWeight.w500,
+                fontSize: 24,
+                color: Colors.white,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
-            ModelImage(
-              images: modelImageRepo.imagesRepo,
-              activeIndex: activeIndex,
-              onPageChanged: (index, _) {
-                setState(() {
-                  activeIndex = index;
-                  futureLaunchData = fetchLaunchData(activeIndex);
-                });
+            FutureBuilder<List<List<String>>>(
+              future: futureRocketImages,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      color: Color.fromRGBO(139, 192, 60, 1.0),
+                    ),
+                  );
+                } else if (snapshot.hasData) {
+                  final rocketImagesList = snapshot.data!;
+                  final rocketImages = rocketImagesList[activeIndex];
+                  return ModelImage(
+                    images: rocketImages,
+                    activeIndex: activeIndex,
+                    onPageChanged: (index, _) {
+                      final rocketImagesList = snapshot.data!;
+                      final newIndex = index % rocketImagesList.length;
+                      if (rocketImagesList[newIndex].isNotEmpty) {
+                        updateDataAndImages(newIndex);
+                      }
+                    },
+                  );
+                } else if (snapshot.hasError) {
+                  return const Center(
+                    child: Text(
+                      'Failed to load rocket images',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w400,
+                        fontSize: 16,
+                      ),
+                    ),
+                  );
+                } else {
+                  return const Center(
+                    child: Text('No rocket images found'),
+                  );
+                }
               },
             ),
+
             const SizedBox(
               height: 10,
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: ModelImageRepo().imagesRepo.map<Widget>((e) {
-                return Container(
-                  width: 10.0,
-                  height: 10.0,
-                  margin: const EdgeInsets.symmetric(horizontal: 2.0),
-                  decoration: BoxDecoration(
-                    border: Border.all(width: 1, color: Colors.white),
-                    shape: BoxShape.circle,
-                    color: activeIndex == ModelImageRepo().imagesRepo.indexOf(e)
-                        ? Colors.white
-                        : Colors.black,
-                  ),
-                );
-              }).toList(),
             ),
             const SizedBox(height: 24),
             Container(
@@ -127,7 +171,7 @@ class _MainLaunchScreen extends State<MainLaunchScreen> {
                         child: Text(
                           'There is no data on launches of this rocket.',
                           style: TextStyle(
-                            color: Color.fromRGBO(255, 255, 255, 1),
+                            color: Colors.white,
                             fontWeight: FontWeight.w500,
                             fontSize: 17,
                           ),
@@ -157,7 +201,8 @@ class _MainLaunchScreen extends State<MainLaunchScreen> {
                           ElevatedButton(
                             onPressed: () {
                               setState(() {
-                                futureLaunchData = fetchLaunchData(activeIndex);
+                                futureLaunchData = fetchLaunchData(
+                                    getRocketIdFromIndex(activeIndex));
                               });
                             },
                             child: const Text(
